@@ -1,38 +1,11 @@
-import express from 'express';
+// Carga el archivo .env antes de importar módulos que leen la configuración.
 import 'dotenv/config';
 
-import productosRouter from './routes/productos.router.js';
-import usuariosRouter from './routes/usuarios.router.js';
+import app from './app.js';
 
-const server = express();
+// Mantiene el puerto configurable para desarrollo y despliegues.
+const port = Number(process.env.SERVER_PORT || 3000);
 
-const PORT = process.env.SERVER_PORT || 3000;
-
-server.use(express.json());
-server.use(express.urlencoded({ extended: true }));
-
-// Aquí van las rutas
-server.use('/productos', productosRouter);
-server.use('/usuarios', usuariosRouter);
-
-// Manejo de error ruta no existente
-server.use((req, res)=>{
-  res.status(404).json({ error: 'Ruta no encontrada' });
+app.listen(port, () => {
+  console.log(`Servidor disponible en http://localhost:${port}`);
 });
-
-// Manejo erorr global (Cualquier otro error que ocurra)
-server.use((err, req, res)=>{
-  console.log('Error interno: ', err)
-  res.status(404).json({ error: 'Error interno del servidor' });
-});
-
-server.use(manejadorErrores);
-
-function manejadorErrores( err, req, res, next){
-  res.status(err.statusCode || 500 ).json({
-    mensaje: err.message || 'Error interno de servidor',
-    errores: err.details || null
-  })
-}
-
-server.listen( PORT, ()=> console.log(`Server running on http://localhost:${PORT}`));

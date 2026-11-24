@@ -1,66 +1,132 @@
 import { Router } from 'express';
 
-import pool from './../config/db.js';
+import pool from '../config/db.js';
+import manejadorErroresValidacion from '../validaciones/manejador-errores.validaciones.js';
+import {
+  identificadorProductoValidaciones,
+  productoActualizarValidaciones,
+  productoCrearValidaciones
+} from '../validaciones/producto.validaciones.js';
 
 const productosRouter = Router();
+const columnasActualizables = ['codigo', 'nombre', 'descripcion', 'precio', 'activo'];
 
-productosRouter.get('/', async ( req, res, next )=>{
-  try{
-    const [ rows ] = await pool.query('SELECT id, codigo, nombre, descripcion, precio, activo, creado_en FROM productos');
-    res.json(rows);
-  }
-  catch(error){
+// Lista los campos públicos de los productos en un orden estable.
+productosRouter.get('/', async (req, res, next) => {
+  try {
+    const [productos] = await pool.query(
+      'SELECT id, codigo, nombre, descripcion, precio, activo, creado_en FROM productos ORDER BY id'
+    );
+    res.json(productos);
+  } catch (error) {
     next(error);
   }
 });
 
-// Obtener la info de un producto por id
-productosRouter.get('/:id', async ( req, res, next )=>{
-  try{
-    const [ rows ] = await pool.execute('SELECT id, codigo, nombre, descripcion, precio, activo, creado_en FROM productos WHERE id = ?', [ req.params.id ]);
-    if(rows.length === 0){
-      return res.status(404).json({ error: 'Producto no encontrado' });
+// Obtiene un producto por identificador y valida la ruta antes de consultar MySQL.
+productosRouter.get(
+  '/:id',
+  identificadorProductoValidaciones,
+  manejadorErroresValidacion,
+  async (req, res, next) => {
+    try {
+      const [productos] = await pool.execute(
+        'SELECT id, codigo, nombre, descripcion, precio, activo, creado_en FROM productos WHERE id = ?',
+        [req.params.id]
+      );
+
+      if (productos.length === 0) {
+        return res.status(404).json({ error: 'Producto no encontrado' });
+      }
+
+      return res.json(productos[0]);
+    } catch (error) {
+      return next(error);
     }
-    res.json(rows[0]);
   }
-  catch(error){
-    next(error);
-  }
-});
+);
 
-productosRouter.post('/', async ( req, res, next )=>{
-  try{
-    const { codigo, nombre, descripcion, precio } = req.body;
-    if(!codigo || !nombre || !precio ){
-      return res.status(400).json({ error: 'Código, nombre y precio son obligatorios' });
+// Crea un producto únicamente después de validar y normalizar sus datos.
+productosRouter.post(
+  '/',
+  productoCrearValidaciones,
+  manejadorErroresValidacion,
+  async (req, res, next) => {
+    try {
+      const { codigo, nombre, descripcion = '', precio, activo = true } = req.body;
+      const [resultado] = await pool.execute(
+        'INSERT INTO productos (codigo, nombre, descripcion, precio, activo) VALUES (?, ?, ?, ?, ?)',
+        [codigo, nombre, descripcion ?? '', precio, activo]
+      );
+
+      return res.status(201).json({
+        id: resultado.insertId,
+        mensaje: 'Producto registrado con éxito.'
+      });
+    } catch (error) {
+      return next(error);
     }
-    const [ result ] = await pool.execute('INSERT INTO productos(codigo, nombre, descripcion, precio) VALUES ( ?, ?, ?, ? )', [ codigo, nombre, descripcion || '', precio ]);
-    res.status(201).json({
-      id: result.insertId,
-      mensaje: 'Producto registrado con éxito.'
-    });
-  }catch(error){
-    next(error);
   }
-});
+);
 
-productosRouter.put('/:id', async ( req, res, next )=>{
-  try{
-    const { id } = req.params;
-    const { codigo, nombre, descripcion, precio, activo } = req.body;
-    console.log(codigo, nombre);
-    
-    const [ result ] = await pool.execute('UPDATE productos SET codigo=IFNULL(?, codigo), nombre=IFNULL(?, nombre), descripcion=IFNULL(?, descripcion), precio=IFNULL(?, precio), activo=IFNULL(?, activo) WHERE id = ?', [codigo || null, nombre || null, descripcion || null, precio || null, activo !== 0 ? true: false, id]);
+// Actualiza solo los campos enviados y permite conservar valores como cero o false.
+productosRouter.put(
+  '/:id',
+  productoActualizarValidaciones,
+  manejadorErroresValidacion,
+  async (req, res, next) => {
+    try {
+      const campos = columnasActualizables.filter((campo) => (
+        Object.hasOwn(req.body, campo)
+      ));
+      const asignaciones = campos.map((campo) => `${campo} = ?`).join(', ');
+      const valores = campos.map((campo) => req.body[campo]);
+      valores.push(req.params.id);
 
-    if( result.affectedRows === 0 ){
-      return res.status(404).json({ error: 'Producto no encontrado' });
+      const [resultado] = await pool.execute(
+        `UPDATE productos SET ${asignaciones} WHERE id = ?`,
+        valores
+      );
+
+      if (resultado.affectedRows === 0) {
+        const [productos] = await pool.execute(
+          'SELECT id FROM productos WHERE id = ?',
+          [req.params.id]
+        );
+
+        if (productos.length === 0) {
+          return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+      }
+
+      return res.json({ mensaje: 'Producto actualizado correctamente.' });
+    } catch (error) {
+      return next(error);
     }
-
-    res.json({ mensaje: 'Producto actualizado correctamente'});
-
-  }catch(error){
-    next(error);
   }
-});
+);
+
+// Elimina un producto y devuelve 404 cuando el identificador no existe.
+productosRouter.delete(
+  '/:id',
+  identificadorProductoValidaciones,
+  manejadorErroresValidacion,
+  async (req, res, next) => {
+    try {
+      const [resultado] = await pool.execute(
+        'DELETE FROM productos WHERE id = ?',
+        [req.params.id]
+      );
+
+      if (resultado.affectedRows === 0) {
+        return res.status(404).json({ error: 'Producto no encontrado' });
+      }
+
+      return res.status(204).end();
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
 
 export default productosRouter;

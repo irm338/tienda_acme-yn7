@@ -13,8 +13,9 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "dev": "nodemon tienda_acme --quiet",
-    "start": "node server.js"
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^5.3.0",
